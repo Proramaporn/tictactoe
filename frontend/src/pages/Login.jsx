@@ -50,7 +50,7 @@ export default function Login() {
             }
             loginUser(res.data.token, res.data.user);
         } catch (err) {
-            setError(err.response?.data?.error || 'Something went wrong. Try again.');
+            setError(err.response?.data?.error || 'Something went wrong. Try again.' + err);
         } finally {
             setSubmitting(false);
         }

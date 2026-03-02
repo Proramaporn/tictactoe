@@ -7,11 +7,14 @@ const router = express.Router();
 /**
  * GET /api/scores/me?size=3
  */
-router.get('/me', authMiddleware, (req, res) => {
-    try {
+router.get('/me', authMiddleware, async (req, res) => {
+     try {
         const size = parseInt(req.query.size) || 3;
-        const score = getScore(req.user.id, size);
+
+        const score = await getScore(req.user.id, size);
+
         res.json({ score });
+
     } catch (err) {
         console.error('Get score error:', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -21,10 +24,10 @@ router.get('/me', authMiddleware, (req, res) => {
 /**
  * GET /api/scores/leaderboard?size=3
  */
-router.get('/leaderboard', (req, res) => {
-    try {
+router.get('/leaderboard', async (req, res) => {
+     try {
         const size = parseInt(req.query.size) || 3;
-        const leaderboard = getLeaderboard(size);
+        const leaderboard = await getLeaderboard(size);
         res.json({ leaderboard });
     } catch (err) {
         console.error('Leaderboard error:', err);

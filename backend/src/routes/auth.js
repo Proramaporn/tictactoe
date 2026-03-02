@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
-const { getDb } = require('../db/database');
+const { queryOne, queryAll, execute } = require('../db/database');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
@@ -18,26 +18,36 @@ router.post('/register', async (req, res) => {
         if (!username || !email || !password) {
             return res.status(400).json({ error: 'username, email, and password are required' });
         }
+
         if (password.length < 6) {
             return res.status(400).json({ error: 'Password must be at least 6 characters' });
         }
 
-        const db = getDb();
-        const existing = db.prepare('SELECT id FROM users WHERE email = ? OR username = ?').get(email, username);
+        const existing = await queryOne(
+            'SELECT id FROM users WHERE email = ? OR username = ?',
+            [email, username]
+        );
+
         if (existing) {
             return res.status(409).json({ error: 'Username or email already in use' });
         }
 
         const hash = await bcrypt.hash(password, 12);
-        const result = db.prepare(
-            'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)'
-        ).run(username, email, hash);
 
-        // Create default score row
-        db.prepare('INSERT OR IGNORE INTO scores (user_id) VALUES (?)').run(result.lastInsertRowid);
+        const result = await execute(
+            'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
+            [username, email, hash]
+        );
+
+        const userId = result.insertId;
+
+        await execute(
+            'INSERT IGNORE INTO scores (user_id) VALUES (?)',
+            [userId]
+        );
 
         const token = jwt.sign(
-            { id: result.lastInsertRowid, username, email },
+            { id: userId, username, email },
             process.env.JWT_SECRET,
             { expiresIn: process.env.JWT_EXPIRY }
         );
@@ -45,8 +55,9 @@ router.post('/register', async (req, res) => {
         res.status(201).json({
             message: 'Account created successfully',
             token,
-            user: { id: result.lastInsertRowid, username, email },
+            user: { id: userId, username, email },
         });
+
     } catch (err) {
         console.error('Register error:', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -65,13 +76,17 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ error: 'Email and password are required' });
         }
 
-        const db = getDb();
-        const user = db.prepare('SELECT * FROM users WHERE email = ? OR username = ?').get(email, email);
+        const user = await queryOne(
+            'SELECT * FROM users WHERE email = ? OR username = ?',
+            [email, email]
+        );
+
         if (!user || !user.password_hash) {
             return res.status(401).json({ error: 'Invalid email or password' });
         }
 
         const valid = await bcrypt.compare(password, user.password_hash);
+
         if (!valid) {
             return res.status(401).json({ error: 'Invalid email or password' });
         }
@@ -87,6 +102,7 @@ router.post('/login', async (req, res) => {
             token,
             user: { id: user.id, username: user.username, email: user.email },
         });
+
     } catch (err) {
         console.error('Login error:', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -97,11 +113,19 @@ router.post('/login', async (req, res) => {
  * GET /api/auth/me
  * Returns the current logged-in user's info
  */
-router.get('/me', authMiddleware, (req, res) => {
-    const db = getDb();
-    const user = db.prepare('SELECT id, username, email, created_at FROM users WHERE id = ?').get(req.user.id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ user });
+router.get('/me', authMiddleware, async (req, res) => {
+    try {
+        const user = await queryOne(
+            'SELECT id, username, email, created_at FROM users WHERE id = ?',
+            [req.user.id]
+        );
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        res.json({ user });
+    } catch (err) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 // ── Google OAuth 2.0 ──────────────────────────────────────────
@@ -135,56 +159,88 @@ router.get('/google/url', (req, res) => {
 router.post('/google/callback', async (req, res) => {
     try {
         const { code } = req.body;
-        if (!code) return res.status(400).json({ error: 'Code is required' });
+        if (!code) {
+            return res.status(400).json({ error: 'Code is required' });
+        }
 
         // Exchange code for tokens
         const { tokens } = await googleClient.getToken(code);
         googleClient.setCredentials(tokens);
 
-        // Get user info from Google
+        // Verify ID token
         const ticket = await googleClient.verifyIdToken({
             idToken: tokens.id_token,
             audience: process.env.GOOGLE_CLIENT_ID,
         });
+
         const payload = ticket.getPayload();
         const { sub: googleId, email, name, picture } = payload;
 
-        const db = getDb();
-
-        // 1. Check if user exists by oauth_id
-        let user = db.prepare('SELECT * FROM users WHERE oauth_provider = ? AND oauth_id = ?').get("google", googleId);
+        // 1️⃣ Check if user exists by oauth_id
+        let user = await queryOne(
+            'SELECT * FROM users WHERE oauth_provider = ? AND oauth_id = ?',
+            ['google', googleId]
+        );
 
         if (!user) {
-            // 2. Check if user exists by email (link accounts)
-            user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+            // 2️⃣ Check if user exists by email (link account)
+            user = await queryOne(
+                'SELECT * FROM users WHERE email = ?',
+                [email]
+            );
 
             if (user) {
-                // Link existing account to Google
-                db.prepare('UPDATE users SET oauth_provider = ? , oauth_id = ? WHERE id = ?').run("google", googleId, user.id);
+                // Link Google account
+                await execute(
+                    'UPDATE users SET oauth_provider = ?, oauth_id = ? WHERE id = ?',
+                    ['google', googleId, user.id]
+                );
             } else {
-                // 3. Create new user
-                // Generate a unique username if name is taken
-                let baseUsername = name.replace(/\s+/g, '').toLowerCase() || email.split('@')[0];
+                // 3️⃣ Create new user
+
+                let baseUsername =
+                    (name && name.replace(/\s+/g, '').toLowerCase()) ||
+                    email.split('@')[0];
+
                 let username = baseUsername;
                 let counter = 1;
-                while (db.prepare('SELECT id FROM users WHERE username = ?').get(username)) {
+
+                // Ensure unique username
+                while (await queryOne(
+                    'SELECT id FROM users WHERE username = ?',
+                    [username]
+                )) {
                     username = `${baseUsername}${counter++}`;
                 }
 
-                const result = db.prepare(
-                    'INSERT INTO users (username, email, oauth_provider, oauth_id) VALUES (?, ?, ?, ?)'
-                ).run(username, email, "google", googleId);
+                const result = await execute(
+                    'INSERT INTO users (username, email, oauth_provider, oauth_id) VALUES (?, ?, ?, ?)',
+                    [username, email, 'google', googleId]
+                );
 
-                user = { id: result.lastInsertRowid, username, email };
+                const userId = result.insertId;
 
-                // Create default score row
-                db.prepare('INSERT OR IGNORE INTO scores (user_id) VALUES (?)').run(user.id);
+                user = {
+                    id: userId,
+                    username,
+                    email
+                };
+
+                // Create default score rows (if needed)
+                await execute(
+                    'INSERT IGNORE INTO scores (user_id, size) VALUES (?, ?)',
+                    [userId, 3]
+                );
             }
         }
 
         // Generate JWT
         const token = jwt.sign(
-            { id: user.id, username: user.username, email: user.email },
+            {
+                id: user.id,
+                username: user.username,
+                email: user.email
+            },
             process.env.JWT_SECRET,
             { expiresIn: process.env.JWT_EXPIRY }
         );
@@ -192,7 +248,12 @@ router.post('/google/callback', async (req, res) => {
         res.json({
             message: 'Google login successful',
             token,
-            user: { id: user.id, username: user.username, email: user.email, picture },
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                picture
+            },
         });
 
     } catch (err) {

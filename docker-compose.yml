@@ -1,6 +1,27 @@
 version: '3.8'
 
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: tictactoe-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: tictactoe
+      MYSQL_USER: tictactoe_admin
+      MYSQL_PASSWORD: admin_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tictactoe-network
+
   backend:
     build:
       context: ./backend
@@ -11,15 +32,17 @@ services:
     env_file:
       - .env
     environment:
-      - NODE_ENV=production
-    volumes:
-      - ./backend/game.db:/app/game.db
-      - ./backend/game.db-shm:/app/game.db-shm
-      - ./backend/game.db-wal:/app/game.db-wal
+      - NODE_ENV=development
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=tictactoe_admin
+      - DB_PASSWORD=admin_password
+      - DB_NAME=tictactoe
     networks:
       - tictactoe-network
     depends_on:
-      - frontend
+      mysql:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
@@ -29,8 +52,6 @@ services:
     container_name: tictactoe-frontend
     ports:
       - "5173:5173"
-    env_file:
-      - .env
     networks:
       - tictactoe-network
     restart: unless-stopped
@@ -40,5 +61,5 @@ networks:
     driver: bridge
 
 volumes:
-  db-volume:
+  mysql_data:
     driver: local
