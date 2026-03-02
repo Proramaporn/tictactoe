@@ -30,52 +30,21 @@ function initializeSchema() {
     );
   `);
 
-  // Check if scores table has the correct UNIQUE constraint (composite)
-  const scoresInfo = db.prepare("PRAGMA index_list(scores)").all();
-  let hasCompositeUnique = false;
-  for (const idx of scoresInfo) {
-    if (idx.unique) {
-      const columns = db.prepare(`PRAGMA index_info(${idx.name})`).all();
-      if (columns.length === 2 && columns.some(c => c.name === 'user_id') && columns.some(c => c.name === 'size')) {
-        hasCompositeUnique = true;
-        break;
-      }
-    }
-  }
-
-  if (!hasCompositeUnique) {
-    console.log("[MIGRATION] Fixing scores table UNIQUE constraint for multi-size support...");
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS scores_new (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id      INTEGER NOT NULL,
-        size         INTEGER NOT NULL DEFAULT 3,
-        total_score  INTEGER DEFAULT 0,
-        win_streak   INTEGER DEFAULT 0,
-        total_wins   INTEGER DEFAULT 0,
-        total_losses INTEGER DEFAULT 0,
-        total_draws  INTEGER DEFAULT 0,
-        updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user_id, size),
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      );
-    `);
-
-    // Transfer existing data
-    try {
-      db.exec(`
-        INSERT OR IGNORE INTO scores_new (user_id, size, total_score, win_streak, total_wins, total_losses, total_draws, updated_at)
-        SELECT user_id, (CASE WHEN size IS NULL THEN 3 ELSE size END), total_score, win_streak, total_wins, total_losses, total_draws, updated_at FROM scores;
-      `);
-      db.exec(`DROP TABLE scores;`);
-      db.exec(`ALTER TABLE scores_new RENAME TO scores;`);
-    } catch (e) {
-      console.error("[MIGRATION ERROR]", e);
-    }
-  }
-
-  // Ensure games table has size column
-  try { db.exec("ALTER TABLE games ADD COLUMN size INTEGER NOT NULL DEFAULT 3;"); } catch (e) { }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scores (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL,
+      size         INTEGER NOT NULL DEFAULT 3,
+      total_score  INTEGER DEFAULT 0,
+      win_streak   INTEGER DEFAULT 0,
+      total_wins   INTEGER DEFAULT 0,
+      total_losses INTEGER DEFAULT 0,
+      total_draws  INTEGER DEFAULT 0,
+      updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, size),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS games (
