@@ -1,5 +1,6 @@
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
+const bcrypt = require('bcryptjs');
 
 const DB_PATH = path.join(__dirname, '../../game.db');
 
@@ -11,6 +12,7 @@ function getDb() {
     db.exec('PRAGMA journal_mode = WAL;');
     db.exec('PRAGMA foreign_keys = ON;');
     initializeSchema();
+    seedAdmin();
   }
   return db;
 }
@@ -87,6 +89,23 @@ function initializeSchema() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+}
+
+function seedAdmin() {
+  const existing = db.prepare(
+    "SELECT id FROM users WHERE username = ?"
+  ).get("admin");
+
+  if (!existing) {
+    const hash = bcrypt.hashSync("admin", 10);
+
+    db.prepare(`
+      INSERT INTO users (username, email, password_hash)
+      VALUES (?, ?, ?)
+    `).run("admin", "admin@example.com", hash);
+
+    console.log("✅ Default admin user created (admin / admin)");
+  }
 }
 
 module.exports = { getDb };

@@ -17,9 +17,18 @@ api.interceptors.response.use(
     (res) => res,
     (err) => {
         if (err.response?.status === 401) {
-            localStorage.removeItem('ttt_token');
-            localStorage.removeItem('ttt_user');
-            window.location.href = '/login';
+            // Check if this is a login/register request
+            const requestUrl = err.config?.url || '';
+            const isAuthEndpoint = requestUrl.includes('/auth/login') || 
+                                   requestUrl.includes('/auth/register') ||
+                                   requestUrl.includes('/auth/google/callback');
+            
+            // Only auto-logout for protected endpoints, not auth endpoints
+            if (!isAuthEndpoint) {
+                localStorage.removeItem('ttt_token');
+                localStorage.removeItem('ttt_user');
+                window.location.href = '/login';
+            }
         }
         return Promise.reject(err);
     }

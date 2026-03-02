@@ -150,7 +150,6 @@ router.post('/google/callback', async (req, res) => {
         const { sub: googleId, email, name, picture } = payload;
 
         const db = getDb();
-        console.log(googleId, email, name, picture);
 
         // 1. Check if user exists by oauth_id
         let user = db.prepare('SELECT * FROM users WHERE oauth_provider = ? AND oauth_id = ?').get("google", googleId);

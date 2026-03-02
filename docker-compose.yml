@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: tictactoe-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - JWT_SECRET=${JWT_SECRET:-your_jwt_secret_here_change_in_production}
+      - JWT_EXPIRY=7d
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:5173/auth/google/callback}
+    volumes:
+      - ./backend/game.db:/app/game.db
+      - ./backend/game.db-shm:/app/game.db-shm
+      - ./backend/game.db-wal:/app/game.db-wal
+    networks:
+      - tictactoe-network
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: tictactoe-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:3001/api
+    networks:
+      - tictactoe-network
+    restart: unless-stopped
+
+networks:
+  tictactoe-network:
+    driver: bridge
+
+volumes:
+  db-volume:
+    driver: local
