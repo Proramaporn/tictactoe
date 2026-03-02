@@ -35,7 +35,7 @@ tictactoe/
 │   ├── src/
 │   │   ├── server.js          # Express app setup
 │   │   ├── db/
-│   │   │   └── database.js    # SQLite database & schema
+│   │   │   └── database.js    # MySQL database & schema
 │   │   ├── middleware/
 │   │   │   └── auth.js        # JWT authentication
 │   │   ├── routes/
@@ -78,65 +78,92 @@ tictactoe/
 - Docker & Docker Compose (optional)
 - Google OAuth credentials (for OAuth login)
 
-### Local Development
+---
 
-1. **Clone and setup backend:**
+### ⚙️ Step 1: Configure Environment
 
+Both solutions require a `.env` file. Create one in the **root directory** and populate it with the following:
+
+```env
+# Server
+PORT=3001
+NODE_ENV=development
+
+# Database (MySQL)
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=tictactoe_admin
+DB_PASSWORD=admin_password
+DB_NAME=tictactoe
+
+# JWT Authentication
+JWT_SECRET=your_jwt_secret_here
+JWT_EXPIRY=7d
+
+# Google OAuth 2.0
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_REDIRECT_URI=http://localhost:5173/auth/google/callback
+```
+
+---
+
+
+---
+
+### 💡 Solution 1: Full Docker Stack (Recommended)
+
+This is the easiest way to run the entire application, including the database, with a single command.
+
+```bash
+# 1. Build and start all services
+docker-compose up --build -d
+
+# 2. Access the application
+# Frontend: http://localhost:5173
+# Backend:  http://localhost:3001
+```
+
+---
+
+### 💡 Solution 2: Local Development (Manual)
+
+Use this if you want to run the frontend and backend in development mode (with hot-reloading) while using a MySQL database.
+
+#### 1. Setup the Database
+You have two options for the MySQL database:
+
+**Option A: Using Docker (easiest)**
+```bash
+# Start only the MySQL service
+docker-compose up -d mysql
+```
+
+**Option B: Using Local MySQL**
+- Create a database named `tictactoe`.
+- Create a user and grant permissions.
+
+#### 2. Run Backend
 ```bash
 cd backend
 npm install
-cp .env.example .env
-# Edit .env with your configuration
 npm run dev
 ```
 
-The API will run on `http://localhost:3001`
-
-2. **Setup frontend:**
-
+#### 3. Run Frontend
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-The frontend will run on `http://localhost:5173`
+---
 
-### Environment Variables
+## 🐳 Docker Services
 
-**Backend (.env):**
-```env
-PORT=3001
-NODE_ENV=development
-JWT_SECRET=your_jwt_secret_here
-JWT_EXPIRY=7d
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
-GOOGLE_REDIRECT_URI=http://localhost:5173/auth/google/callback
-```
-
-## 🐳 Docker Deployment
-
-### Using Docker Compose
-
-```bash
-docker-compose up --build
-```
-
-This will start:
-- **Backend API** on `http://localhost:3001`
-- **Frontend** on `http://localhost:5173`
-- **SQLite Database** (persisted in volume)
-
-Update the `.env` file and set `GOOGLE_REDIRECT_URI` for production:
-```env
-GOOGLE_REDIRECT_URI=https://yourdomain.com/auth/google/callback
-```
-
-### Docker Compose Services
-
-- **backend**: Node.js API server
-- **frontend**: React development/build server
+- **mysql**: MySQL 8.0 database (Port 3306)
+- **backend**: Node.js API server (Port 3001)
+- **frontend**: React application served by Nginx (Port 5173 / Port 80 inside container)
 - **Volumes**: Database persistence, package caching
 
 ## 📚 API Documentation
@@ -221,7 +248,7 @@ npm run lint       # Run ESLint
 
 ## 🗄️ Database
 
-SQLite database (`game.db`) with three main tables:
+MySQL database with three main tables:
 
 - **users**: User accounts with OAuth support
 - **scores**: Size-specific score tracking per user
@@ -258,11 +285,11 @@ Auto-migration handles schema updates on startup.
 # Change port in .env for backend or vite.config.js for frontend
 ```
 
-**Database locked**:
-```bash
-# Remove game.db-shm and game.db-wal files
-rm backend/game.db-shm backend/game.db-wal
-```
+**Database connection issues**:
+- Check if MySQL is running (`docker ps`).
+- Verify credentials in `.env` match `docker-compose.yml`.
+- Ensure the database `tictactoe` exists.
+
 
 **Google OAuth redirect URI mismatch**:
 ```bash
